@@ -1,0 +1,16 @@
+.login-shell{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 18% 12%,#dce7de 0,transparent 35%),linear-gradient(145deg,#f3f1e8,#e8ebe4)}
+.login-card{width:min(430px,100%);padding:42px;border:1px solid #d7d9d1;border-radius:24px;background:#fffefa;box-shadow:0 28px 80px #1c392d21}
+.login-card .brand-mark{margin-bottom:26px}
+.login-card h1{margin:8px 0 12px;font-family:Georgia,"STSong",serif;font-size:31px;font-weight:500}
+.login-copy{margin:0 0 27px;color:#68736e;font-size:13px;line-height:1.7}
+.login-card form{display:grid;gap:14px}
+.login-card label{display:grid;gap:8px;color:#59645f;font-size:12px;font-weight:700}
+.login-card input{width:100%;border:1px solid #d8dbd3;border-radius:11px;padding:13px 14px;background:#fff;color:#16231f;outline:none}
+.login-card input:focus{border-color:#5f8375;box-shadow:0 0 0 3px #d8e8df}
+.login-card .primary-button{width:100%;margin:0;padding:13px}
+.login-card>small{display:block;margin-top:21px;color:#89918d;text-align:center;font-size:10px}
+.login-error{margin:0;padding:9px 11px;border-radius:9px;background:#fae9e4;color:#9a3f2b;font-size:11px}
+.login-loading{padding:16px;border-radius:11px;background:#ecefe9;color:#66716c;text-align:center;font-size:12px}
+.logout-button{margin-left:auto;border:0;background:transparent;color:#6d7772;font-size:12px}
+.topbar .primary-button{margin-left:0}
+@media(max-width:760px){.logout-button{margin-left:0}.login-card{padding:30px 24px}.login-card h1{font-size:26px}}

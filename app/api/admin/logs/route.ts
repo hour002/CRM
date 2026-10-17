@@ -1,0 +1,3 @@
+import { requireAdmin } from '@/app/auth';
+import { getD1 } from '@/db/raw';
+export async function GET(request:Request){if(!(await requireAdmin(request)))return Response.json({error:'无管理员权限'},{status:403});try{const rows=await getD1().prepare('SELECT id,actor_name AS actorName,action,target_type AS targetType,target_id AS targetId,detail,created_at AS createdAt FROM audit_logs ORDER BY created_at DESC LIMIT 100').all();return Response.json({logs:rows.results},{headers:{'cache-control':'private, no-store'}})}catch(error){return Response.json({error:error instanceof Error?error.message:'加载失败'},{status:500})}}

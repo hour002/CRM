@@ -1,0 +1,6 @@
+.admin-assignments{margin-top:24px;padding-top:20px;border-top:1px solid var(--line)}
+.admin-assignments>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+.admin-assignments h3{margin:0;font-size:16px}
+.admin-assignments>div:first-child span{color:#75817b;font-size:12px}
+.admin-assignments .table-wrap{max-height:430px;overflow:auto}
+.admin-assignments select{min-width:160px;border:1px solid var(--line);border-radius:9px;background:#fff;padding:8px 10px;color:var(--ink)}

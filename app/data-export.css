@@ -1,0 +1,8 @@
+.topbar .top-actions .export-trigger { display: inline-flex; align-items: center; font-size: 14px; }
+.export-grid span, .export-all span { font-size: 14px; }
+.export-grid small, .export-all small { font-size: 12px; }
+.export-modal .section-note { font-size: 14px; line-height: 1.6; }
+@media (max-width: 760px) {
+  .topbar .top-actions .export-trigger { font-size: 0; }
+  .topbar .top-actions .export-trigger::after { font-size: 14px; }
+}

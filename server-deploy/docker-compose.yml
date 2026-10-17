@@ -1,0 +1,14 @@
+services:
+  crm:
+    build:
+      context: ..
+      dockerfile: server-deploy/Dockerfile
+    container_name: customer-care-crm
+    restart: unless-stopped
+    env_file:
+      - /opt/customer-care-crm/.env
+    volumes:
+      - /opt/customer-care-crm/data:/data
+    ports:
+      - "127.0.0.1:3000:3000"
+
