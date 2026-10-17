@@ -1,8 +1,7 @@
 /**
- * Runtime schema ensure aligned with drizzle migrations (0000–0006).
+ * Runtime schema ensure aligned with drizzle migrations (0000–0007).
  * Drizzle migrations remain the source of truth for deploy (wrangler d1 migrations apply).
- * This module only fills gaps when the app starts without migrations having run,
- * and repairs incomplete CREATE TABLE leftovers (missing owner_user_id / auth tables).
+ * This module fills gaps when the app starts without migrations, and repairs incomplete tables.
  */
 
 type Stmt = {
@@ -42,7 +41,6 @@ async function ensureColumn(db: EnsureDb, table: string, column: string, ddl: st
   }
 }
 
-/** Full CREATE TABLE IF NOT EXISTS matching current drizzle schema (+ manager_id). */
 const CREATE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS customers (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -66,6 +64,7 @@ const CREATE_STATEMENTS = [
     contact_phone TEXT NOT NULL DEFAULT '',
     tags TEXT NOT NULL DEFAULT '',
     owner_user_id INTEGER,
+    stage TEXT NOT NULL DEFAULT '潜在',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
@@ -83,9 +82,13 @@ const CREATE_STATEMENTS = [
     contact_phone TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT '主动拓展',
     status TEXT NOT NULL DEFAULT '新线索',
+    stage TEXT NOT NULL DEFAULT '待处理',
     province TEXT NOT NULL DEFAULT '待补充',
     owner_user_id INTEGER,
     notes TEXT NOT NULL DEFAULT '',
+    invalid_reason TEXT NOT NULL DEFAULT '',
+    converted_account_id INTEGER,
+    converted_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
@@ -161,6 +164,70 @@ const CREATE_STATEMENTS = [
     created_at TEXT NOT NULL,
     FOREIGN KEY (actor_user_id) REFERENCES crm_users(id) ON DELETE SET NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS account_contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    account_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    wechat TEXT NOT NULL DEFAULT '',
+    remark TEXT NOT NULL DEFAULT '',
+    owner_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (account_id) REFERENCES customers(id) ON DELETE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS opportunities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    account_id INTEGER NOT NULL,
+    lead_id INTEGER,
+    name TEXT NOT NULL,
+    code TEXT NOT NULL,
+    contact_id INTEGER,
+    stage TEXT NOT NULL DEFAULT '需求确认',
+    sales_estimated_amount REAL NOT NULL DEFAULT 0,
+    project_amount REAL NOT NULL DEFAULT 0,
+    expected_close_date TEXT NOT NULL DEFAULT '',
+    importance TEXT NOT NULL DEFAULT '普通',
+    owner_user_id INTEGER,
+    requirement TEXT NOT NULL DEFAULT '',
+    product_match TEXT NOT NULL DEFAULT '',
+    tech_owner TEXT NOT NULL DEFAULT '',
+    supporting_docs TEXT NOT NULL DEFAULT '',
+    social_insurance_count INTEGER NOT NULL DEFAULT 0,
+    review_opinion TEXT NOT NULL DEFAULT '',
+    action_plan TEXT NOT NULL DEFAULT '',
+    remark TEXT NOT NULL DEFAULT '',
+    requirement_date TEXT NOT NULL DEFAULT '',
+    sales_opinion TEXT NOT NULL DEFAULT '',
+    quantity INTEGER NOT NULL DEFAULT 0,
+    is_draft INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (account_id) REFERENCES customers(id) ON DELETE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS follow_ups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    owner_user_id INTEGER NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    content TEXT NOT NULL DEFAULT '',
+    next_contact_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS stage_histories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id INTEGER NOT NULL,
+    from_stage TEXT NOT NULL,
+    to_stage TEXT NOT NULL,
+    changed_by INTEGER NOT NULL,
+    changed_at TEXT NOT NULL
+  )`,
 ];
 
 const INDEX_STATEMENTS = [
@@ -172,6 +239,8 @@ const INDEX_STATEMENTS = [
   'CREATE INDEX IF NOT EXISTS idx_interactions_customer_date ON interactions(customer_id, communicated_at)',
   'CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status)',
   'CREATE INDEX IF NOT EXISTS idx_leads_owner_status ON leads(owner_user_id, status)',
+  'CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage)',
+  'CREATE INDEX IF NOT EXISTS idx_leads_converted_account ON leads(converted_account_id)',
   'CREATE INDEX IF NOT EXISTS idx_customer_visits_customer_planned ON customer_visits(customer_id, planned_at)',
   'CREATE INDEX IF NOT EXISTS idx_customer_visits_status_planned ON customer_visits(status, planned_at)',
   'CREATE INDEX IF NOT EXISTS idx_network_contacts_category ON network_contacts(category)',
@@ -184,15 +253,28 @@ const INDEX_STATEMENTS = [
   'CREATE INDEX IF NOT EXISTS idx_crm_sessions_user_expiry ON crm_sessions(user_id, expires_at)',
   'CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at)',
   'CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_created ON audit_logs(actor_user_id, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_account_contacts_account ON account_contacts(account_id)',
+  'CREATE INDEX IF NOT EXISTS idx_account_contacts_owner ON account_contacts(owner_user_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_opportunities_code ON opportunities(code)',
+  'CREATE INDEX IF NOT EXISTS idx_opportunities_account ON opportunities(account_id)',
+  'CREATE INDEX IF NOT EXISTS idx_opportunities_owner_stage ON opportunities(owner_user_id, stage)',
+  'CREATE INDEX IF NOT EXISTS idx_opportunities_lead ON opportunities(lead_id)',
+  'CREATE INDEX IF NOT EXISTS idx_follow_ups_owner_status ON follow_ups(owner_user_id, status)',
+  'CREATE INDEX IF NOT EXISTS idx_follow_ups_target ON follow_ups(target_type, target_id)',
+  'CREATE INDEX IF NOT EXISTS idx_follow_ups_next_contact ON follow_ups(status, next_contact_at)',
+  'CREATE INDEX IF NOT EXISTS idx_stage_histories_target ON stage_histories(target_type, target_id, changed_at)',
 ];
 
-/** Columns that must exist even if an older incomplete CREATE TABLE left the table behind. */
 export const REQUIRED_COLUMNS: Record<string, string[]> = {
-  customers: ['owner_user_id', 'city', 'address', 'latitude', 'longitude', 'location_precision'],
-  leads: ['owner_user_id'],
+  customers: ['owner_user_id', 'city', 'address', 'latitude', 'longitude', 'location_precision', 'stage'],
+  leads: ['owner_user_id', 'stage', 'invalid_reason', 'converted_account_id', 'converted_at'],
   crm_users: ['manager_id', 'username', 'password_hash', 'active'],
   crm_sessions: ['token_hash', 'user_id', 'expires_at'],
   audit_logs: ['actor_name', 'action', 'target_type', 'created_at'],
+  account_contacts: ['account_id', 'name', 'owner_user_id'],
+  opportunities: ['account_id', 'code', 'stage', 'sales_estimated_amount', 'project_amount', 'owner_user_id'],
+  follow_ups: ['owner_user_id', 'target_type', 'target_id', 'status', 'next_contact_at'],
+  stage_histories: ['target_type', 'target_id', 'from_stage', 'to_stage', 'changed_by', 'changed_at'],
 };
 
 const COLUMN_ALTERS: Array<[string, string, string]> = [
@@ -202,7 +284,12 @@ const COLUMN_ALTERS: Array<[string, string, string]> = [
   ['customers', 'latitude', 'latitude REAL'],
   ['customers', 'longitude', 'longitude REAL'],
   ['customers', 'location_precision', "location_precision TEXT NOT NULL DEFAULT 'province'"],
+  ['customers', 'stage', "stage TEXT NOT NULL DEFAULT '潜在'"],
   ['leads', 'owner_user_id', 'owner_user_id INTEGER'],
+  ['leads', 'stage', "stage TEXT NOT NULL DEFAULT '待处理'"],
+  ['leads', 'invalid_reason', "invalid_reason TEXT NOT NULL DEFAULT ''"],
+  ['leads', 'converted_account_id', 'converted_account_id INTEGER'],
+  ['leads', 'converted_at', 'converted_at TEXT'],
   ['crm_users', 'manager_id', 'manager_id INTEGER'],
 ];
 
@@ -210,6 +297,40 @@ export async function ensureSchema(db: EnsureDb): Promise<void> {
   await db.batch(CREATE_STATEMENTS.map((sql) => db.prepare(sql)));
   for (const [table, column, ddl] of COLUMN_ALTERS) {
     await ensureColumn(db, table, column, ddl);
+  }
+  // Backfill lead.stage from legacy status when still default-empty mismatch
+  try {
+    if (await tableExists(db, 'leads')) {
+      const cols = await columnNames(db, 'leads');
+      if (cols.has('stage') && cols.has('status')) {
+        await db
+          .prepare(
+            `UPDATE leads SET stage = CASE status
+              WHEN '新线索' THEN '待处理'
+              WHEN '已联系' THEN '跟进中'
+              WHEN '需求确认' THEN '确认需求'
+              WHEN '方案报价' THEN '提交需求'
+              WHEN '赢单' THEN '已转化'
+              WHEN '暂缓' THEN '无效'
+              WHEN '待处理' THEN '待处理'
+              WHEN '跟进中' THEN '跟进中'
+              WHEN '提交需求' THEN '提交需求'
+              WHEN '确认需求' THEN '确认需求'
+              WHEN '已转化' THEN '已转化'
+              WHEN '无效' THEN '无效'
+              ELSE stage
+            END
+            WHERE stage IS NULL OR stage = '' OR (
+              status IN ('新线索','已联系','需求确认','方案报价','赢单','暂缓')
+              AND stage = '待处理'
+              AND status != '新线索'
+            )`,
+          )
+          .run();
+      }
+    }
+  } catch {
+    /* ignore backfill errors on fresh empty DB */
   }
   await db.batch(INDEX_STATEMENTS.map((sql) => db.prepare(sql)));
 }

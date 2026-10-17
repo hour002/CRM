@@ -86,12 +86,20 @@ if (!tables.get('crm_users').has('manager_id')) {
   missing.push('crm_users.manager_id');
 }
 
-// Migration file must exist
+// Migration files must exist
 try {
   const mig = readFileSync(join(root, 'drizzle/0006_manager_id.sql'), 'utf8');
   if (!mig.includes('manager_id')) missing.push('migration:0006 missing manager_id');
 } catch {
   missing.push('migration:0006 file missing');
+}
+try {
+  const mig7 = readFileSync(join(root, 'drizzle/0007_crm_core.sql'), 'utf8');
+  for (const needle of ['stage', 'account_contacts', 'opportunities', 'follow_ups', 'stage_histories']) {
+    if (!mig7.includes(needle)) missing.push(`migration:0007 missing ${needle}`);
+  }
+} catch {
+  missing.push('migration:0007 file missing');
 }
 
 if (missing.length) {
@@ -100,5 +108,5 @@ if (missing.length) {
 }
 
 console.log('OK ensure-schema covers', Object.keys(REQUIRED_COLUMNS).join(', '));
-console.log('OK customers.owner_user_id, leads.owner_user_id, crm_users.manager_id present');
+console.log('OK customers.owner_user_id/stage, leads.stage/converted, crm_users.manager_id, opportunities, follow_ups present');
 console.log('OK legacy incomplete customers would gain owner_user_id via ALTER');

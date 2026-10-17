@@ -10,9 +10,10 @@ export async function GET(request: Request) {
     const owner = actor.id;
     const vis = ownedOrSubordinateSql('c.owner_user_id');
     const visLead = ownedOrSubordinateSql('l.owner_user_id');
+    const visOpp = ownedOrSubordinateSql('o.owner_user_id');
 
-    const customerBase = `SELECT c.id,c.name,c.province,c.city,c.address,c.latitude,c.longitude,c.location_precision AS locationPrecision,c.salesperson,c.order_count AS orderCount,c.latest_order_date AS latestOrderDate,c.latest_order_no AS latestOrderNo,c.customer_level AS customerLevel,c.communication_cycle AS communicationCycle,c.communicated,c.last_communication_at AS lastCommunicationAt,c.communication_summary AS communicationSummary,c.contact_name AS contactName,c.contact_phone AS contactPhone,c.tags,c.owner_user_id AS ownerUserId,u.display_name AS ownerName FROM customers c LEFT JOIN crm_users u ON u.id=c.owner_user_id`;
-    const leadBase = `SELECT l.id,l.company_name AS companyName,l.contact_name AS contactName,l.contact_phone AS contactPhone,l.source,l.status,l.province,l.notes,l.owner_user_id AS ownerUserId,u.display_name AS ownerName,l.created_at AS createdAt,l.updated_at AS updatedAt FROM leads l LEFT JOIN crm_users u ON u.id=l.owner_user_id`;
+    const customerBase = `SELECT c.id,c.name,c.province,c.city,c.address,c.latitude,c.longitude,c.location_precision AS locationPrecision,c.salesperson,c.order_count AS orderCount,c.latest_order_date AS latestOrderDate,c.latest_order_no AS latestOrderNo,c.customer_level AS customerLevel,c.communication_cycle AS communicationCycle,c.communicated,c.last_communication_at AS lastCommunicationAt,c.communication_summary AS communicationSummary,c.contact_name AS contactName,c.contact_phone AS contactPhone,c.tags,c.owner_user_id AS ownerUserId,u.display_name AS ownerName,c.stage FROM customers c LEFT JOIN crm_users u ON u.id=c.owner_user_id`;
+    const leadBase = `SELECT l.id,l.company_name AS companyName,l.contact_name AS contactName,l.contact_phone AS contactPhone,l.source,l.status,l.stage,l.province,l.notes,l.owner_user_id AS ownerUserId,u.display_name AS ownerName,l.invalid_reason AS invalidReason,l.converted_account_id AS convertedAccountId,l.converted_at AS convertedAt,l.created_at AS createdAt,l.updated_at AS updatedAt FROM leads l LEFT JOIN crm_users u ON u.id=l.owner_user_id`;
 
     const customers = admin
       ? await db
@@ -68,6 +69,37 @@ export async function GET(request: Request) {
           .all()
       : { results: [] };
 
+    const oppBase = `SELECT o.id,o.account_id AS accountId,o.lead_id AS leadId,o.name,o.code,o.stage,o.sales_estimated_amount AS salesEstimatedAmount,o.project_amount AS projectAmount,o.expected_close_date AS expectedCloseDate,o.importance,o.owner_user_id AS ownerUserId,u.display_name AS ownerName,c.name AS accountName,o.is_draft AS isDraft,o.created_at AS createdAt,o.updated_at AS updatedAt FROM opportunities o LEFT JOIN crm_users u ON u.id=o.owner_user_id LEFT JOIN customers c ON c.id=o.account_id`;
+    const opportunities = admin
+      ? await db.prepare(oppBase + ' WHERE COALESCE(o.is_draft,0)=0 ORDER BY o.updated_at DESC').all()
+      : await db
+          .prepare(oppBase + ` WHERE COALESCE(o.is_draft,0)=0 AND ${visOpp} ORDER BY o.updated_at DESC`)
+          .bind(owner, owner)
+          .all();
+
+    let todos: unknown[] = [];
+    let subordinateOverdue: unknown[] = [];
+    if (owner != null) {
+      const todoRows = await db
+        .prepare(
+          `SELECT id, owner_user_id AS ownerUserId, target_type AS targetType, target_id AS targetId, status, content, next_contact_at AS nextContactAt, created_at AS createdAt
+           FROM follow_ups WHERE owner_user_id=? AND status='pending' ORDER BY next_contact_at ASC LIMIT 50`,
+        )
+        .bind(owner)
+        .all();
+      todos = todoRows.results || [];
+      const overdueRows = await db
+        .prepare(
+          `SELECT f.id, f.owner_user_id AS ownerUserId, u.display_name AS ownerName, f.target_type AS targetType, f.target_id AS targetId, f.content, f.next_contact_at AS nextContactAt
+           FROM follow_ups f JOIN crm_users u ON u.id=f.owner_user_id
+           WHERE u.manager_id=? AND f.status='pending' AND f.next_contact_at IS NOT NULL AND f.next_contact_at < ?
+           ORDER BY f.next_contact_at ASC LIMIT 50`,
+        )
+        .bind(owner, new Date().toISOString())
+        .all();
+      subordinateOverdue = overdueRows.results || [];
+    }
+
     return Response.json(
       {
         actor,
@@ -77,6 +109,9 @@ export async function GET(request: Request) {
         visits: visits.results,
         contacts: contacts.results,
         networkInteractions: networkInteractions.results,
+        opportunities: opportunities.results || [],
+        todos,
+        subordinateOverdue,
       },
       { headers: { 'cache-control': 'private, no-store' } },
     );

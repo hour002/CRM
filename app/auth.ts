@@ -220,6 +220,40 @@ export function unauthorized() {
   return Response.json({ error: '请先登录' }, { status: 401, headers: { 'cache-control': 'no-store' } });
 }
 
+
+export async function canAccessOpportunity(
+  request: Request,
+  opportunityId: number,
+  mode: AccessMode = 'write',
+): Promise<SessionActor | null> {
+  const actor = await getSessionActor(request);
+  if (!actor) return null;
+  if (actor.role === 'admin') return actor;
+  const row = await getD1()
+    .prepare(
+      `SELECT o.owner_user_id AS ownerUserId, u.manager_id AS ownerManagerId
+       FROM opportunities o LEFT JOIN crm_users u ON u.id = o.owner_user_id
+       WHERE o.id = ?`,
+    )
+    .bind(opportunityId)
+    .first<{ ownerUserId: number | null; ownerManagerId: number | null }>();
+  if (!row) return null;
+  return decideAccess(actor, row.ownerUserId, row.ownerManagerId, mode);
+}
+
+/** Resolve access for a polymorphic follow-up target. */
+export async function canAccessFollowUpTarget(
+  request: Request,
+  targetType: string,
+  targetId: number,
+  mode: AccessMode = 'write',
+): Promise<SessionActor | null> {
+  if (targetType === 'lead') return canAccessLead(request, targetId, mode);
+  if (targetType === 'account' || targetType === 'customer') return canAccessCustomer(request, targetId, mode);
+  if (targetType === 'opportunity') return canAccessOpportunity(request, targetId, mode);
+  return null;
+}
+
 /** Pure helper for tests: manager may read/assign, not write. */
 export function evaluateOwnershipAccess(
   actor: { id: number | null; role: 'admin' | 'sales' },
